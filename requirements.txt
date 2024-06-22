@@ -1,0 +1,8 @@
+fastapi==0.78.0
+uvicorn==0.18.2
+pydantic<2
+typing
+google-api-python-client
+logging
+psycopg2
+uuid
