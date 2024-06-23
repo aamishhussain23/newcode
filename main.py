@@ -341,18 +341,19 @@ async def receive_data(param: str, data: Dict):
         requests = []
         if len(results[1]) > 0:
             for j in range(len(results[1])):
-                requests.append({
-                    "insertRange": {
-                        "range": {
-                            "sheetId": row[1],
-                            "startRowIndex": len(cleaned),
-                            "endRowIndex": lastrow + len(cleaned) - int(row[2]) + 1,
-                            "startColumnIndex": results[1][j],
-                            "endColumnIndex": results[1][j] + 1,
-                        },
-                        "shiftDimension": "COLUMNS"
-                    }
-                })
+                if len(cleaned) <= lastrow + len(cleaned) - int(row[2]):
+                    requests.append({
+                        "insertRange": {
+                            "range": {
+                                "sheetId": row[1],
+                                "startRowIndex": len(cleaned),
+                                "endRowIndex": lastrow + len(cleaned) - int(row[2]) + 1,
+                                "startColumnIndex": results[1][j],
+                                "endColumnIndex": results[1][j] + 1,
+                            },
+                            "shiftDimension": "COLUMNS"
+                        }
+                    })
             body = {'requests': requests}
             service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=body).execute()
 
