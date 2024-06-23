@@ -358,92 +358,135 @@ def value_merge(rows,pos):
 
 @app.post("/sendtoken")
 async def receive_token(data: TokenData):
+    
     insert_query = """INSERT INTO oauth_token ("token","sheetId","utcTime") VALUES (%s, %s, %s) ON CONFLICT ("sheetId")  DO UPDATE SET "token" = EXCLUDED."token", "utcTime" = EXCLUDED."utcTime";"""
     data_query = (data.token,data.sheetId,datetime.now())
     conn_sq = psycopg2.connect("postgresql://retool:yosc9BrPx5Lw@ep-silent-hill-00541089.us-west-2.retooldb.com/retool?sslmode=require")
     cur_sq = conn_sq.cursor()
     cur_sq.execute(insert_query,data_query)
     conn_sq.commit()
-    cur_sq.close()
-    conn_sq.close()
+    
     return 0
 
 @app.post("/datasink/{param:path}")
-async def receive_data(param: str, data: Dict):
+async def receive_token(param: str, data: Dict):
     conn = psycopg2.connect("postgresql://retool:yosc9BrPx5Lw@ep-silent-hill-00541089.us-west-2.retooldb.com/retool?sslmode=require")
     cur = conn.cursor()
     query = """SELECT "sheetId", "tabId", "rows" FROM header_structure WHERE "param" = %s;"""
     cur.execute(query, (param,))
     row = cur.fetchone()
-
+    
     if row:
         query = """SELECT "token" FROM oauth_token WHERE "sheetId" = %s;"""
         cur.execute(query, (row[0],))
         token = cur.fetchone()
         
-        if token:
-            access_token = token[0]
-            creds = Credentials(token=access_token)
-            service = build('sheets', 'v4', credentials=creds)
+        access_token = token[0]
+        creds = Credentials(token=access_token)
+        service = build('sheets', 'v4', credentials=creds)
+        
+        # Fetch existing header structure
+        raw_feed = getdata(token[0], row[0], row[1], row[2])
+        header = raw_feed[0]
+        lastrow = raw_feed[1]
 
-            # Retrieve current data
-            raw_feed = getdata(token[0], row[0], row[1], row[2])
-
-            header = raw_feed[0]
-            lastrow = raw_feed[1]
-
-            results = collect_keys(data, 0, header, "", [])
-
-            cleaned = format_keys(results[0])
-            datarow = fill_rows(data, 0, cleaned, [], 0, "")
-            cleaned_2 = getback(cleaned.copy())
-
-            # Clear existing data and formatting
-            clear_values_request = {
-                'updateCells': {
-                    'range': {
-                        'sheetId': row[1],
-                        'startRowIndex': 0,
-                        'endRowIndex': len(cleaned),
-                        'startColumnIndex': 0,
-                        'endColumnIndex': len(cleaned[0])
-                    },
-                    'fields': 'userEnteredValue'
-                }
-            }
-
-            clear_formatting_request = {
-                'unmergeCells': {
-                    'range': {
-                        'sheetId': row[1],
-                        'startRowIndex': 0,
-                        'endRowIndex': len(cleaned),
-                        'startColumnIndex': 0,
-                        'endColumnIndex': len(cleaned[0])
+        # Collect keys from the incoming data
+        results = collect_keys(data, 0, header, "", [])
+        cleaned = format_keys(results[0])
+        datarow = fill_rows(data, 0, cleaned, [], 0, "")
+        cleaned_2 = getback(cleaned.copy())
+        
+        # Ensure headers are set correctly before inserting data
+        if len(cleaned) > int(row[2]):
+            requests = [
+                {
+                    "insertDimension": {
+                        "range": {
+                            "sheetId": row[1],
+                            "dimension": "ROWS",
+                            "startIndex": int(row[2]),
+                            "endIndex": len(cleaned)
+                        },
+                        "inheritFromBefore": False  # or True depending on context
                     }
                 }
-            }
+            ]
+            
+            body = {'requests': requests}
+            service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=body).execute()
 
-            service.spreadsheets().batchUpdate(spreadsheetId=row[0], body={'requests': [clear_values_request]}).execute()
-            service.spreadsheets().batchUpdate(spreadsheetId=row[0], body={'requests': [clear_formatting_request]}).execute()
+        if len(results[1]) > 0: 
+            requests = []
+            for j in range(len(results[1])):
+                requests.append({
+                    "insertRange": {
+                        "range": {
+                            "sheetId": row[1],
+                            "startRowIndex": len(cleaned),
+                            "endRowIndex": lastrow + len(cleaned) - int(row[2]) + 1,  
+                            "startColumnIndex": results[1][j],  
+                            "endColumnIndex": results[1][j] + 1,
+                        },
+                        "shiftDimension": "COLUMNS" 
+                    }
+                })
+            
+            body = {'requests': requests}
+            service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=body).execute()
+    
+        requests = merge(cleaned, cleaned_2)
+        requests.append(value_merge(datarow, lastrow + len(cleaned) - int(row[2])))
 
-            # Insert new headers and data
-            requests = merge(cleaned, cleaned_2)
-            requests.append(value_merge(datarow, lastrow + len(cleaned) - int(row[2])))
+        clear_formatting_request = {
+            'requests': [{
+                'unmergeCells': {
+                    'range': {
+                        'sheetId': 0, 
+                        "startRowIndex": 0,
+                        "endRowIndex": len(cleaned),  
+                        "startColumnIndex": 0,  
+                        "endColumnIndex": len(cleaned[0])
+                    },
+                }
+            }]
+        }
+        
+        clear_values_request = {
+            'requests': [{
+                'updateCells': {
+                    'range': {
+                        'sheetId': 0, 
+                        "startRowIndex": 0,
+                        "endRowIndex": len(cleaned),  
+                        "startColumnIndex": 0,  
+                        "endColumnIndex": len(cleaned[0]) 
+                    },
+                    'fields': 'userEnteredValue'
+                }   
+            }]
+        }
+        
+        # Always reset the headers before inserting new data
+        service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=clear_values_request).execute()
+        service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=clear_formatting_request).execute()
 
-            service.spreadsheets().batchUpdate(spreadsheetId=row[0], body={'requests': requests}).execute()
+        # Insert headers and data
+        body = {'requests': requests}
+        service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=body).execute()
 
-            # Update header structure with the new number of rows
-            new_row_count = len(results[0])
-            query = """UPDATE header_structure SET "rows" = %s WHERE "sheetId" = %s AND "tabId" = %s;"""
-            cur.execute(query, (new_row_count, row[0], row[1]))
-            conn.commit()
-
+        # Update header structure with the new number of rows
+        new_row_count = len(results[0])
+        query = """UPDATE header_structure SET "rows" = %s WHERE "sheetId" = %s AND "tabId" = %s;"""
+        cur.execute(query, (new_row_count, row[0], row[1]))
+        conn.commit()
+    
     cur.close()
     conn.close()
     return 0
 
-def getdata(token, sheetId, tabId, rows):
+
+def getdata(token,sheetId,tabId,rows):
+    
     access_token = token
     spreadsheet_id = sheetId
     creds = Credentials(token=access_token)
@@ -456,13 +499,16 @@ def getdata(token, sheetId, tabId, rows):
         if sheet['properties']['sheetId'] == int(tabId):
             sheet_name = sheet['properties']['title']
             break
-
-    if int(rows) != 0:
-        range_name = f'{sheet_name}!1:{rows}'
+    
+    if int(rows)!=0:
+        range_name = f'{sheet_name}!1:{rows}' 
+        range_all = f'{sheet_name}'
         result = service.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range=range_name).execute()
+        result_all = service.spreadsheets().values().get(spreadsheetId=spreadsheet_id, range=range_all).execute()
         values = result.get('values', [])
+        values_all = result_all.get('values', [])
 
-        if values:
+        if values!=[]:
             max_len = max(len(keys) for keys in values)
             formatted_keys = []
 
@@ -470,32 +516,45 @@ def getdata(token, sheetId, tabId, rows):
                 while len(keys) < max_len:
                     keys.append('')
                 formatted_keys.append(keys)
+        
             values = formatted_keys
 
-            for y1 in range(len(values)):
-                if y1 == 0:
-                    for y2 in range(len(values[y1])):
-                        if values[y1][y2] == '' and y2 > 0:
-                            values[y1][y2] = values[y1][y2-1]
-                else:
-                    detect = 0
-                    for y2 in range(len(values[y1])):
-                        if values[y1][y2] != '':
-                            detect = 1
-                        if values[y1-1][y2] == values[y1-1][0] and values[y1][y2] == '' and y2 > 0 and detect == 1:
-                            values[y1][y2] = values[y1][y2-1]
-                        else:
-                            values[y1-1][0] = values[y1-1][y2]
+        y1 = 0
+        while y1<len(values):
+            if y1==0:
+                y2 = 0
+                while y2<len(values[y1]):   
+                    if values[y1][y2]=='' and y2>0:
+                        values[y1][y2] = values[y1][y2-1]
+                    y2 = y2+1
+            else:
+                y2 = 0
+                flag = values[y1-1][0]
+                detect = 0
+                while y2<len(values[y1]):
+                    if values[y1][y2]!='':
+                        detect = 1 
+                    if values[y1-1][y2]==flag and values[y1][y2]=='' and y2>0 and detect==1:
+                        values[y1][y2] = values[y1][y2-1]
+                    else:
+                        flag = values[y1-1][y2]
+                    y2 = y2 + 1
+            y1 = y1 + 1
 
-            for y1 in range(len(values)):
-                for y2 in range(len(values[y1])):
-                    if y1 > 0 and values[y1][y2] != '':
-                        values[y1][y2] = values[y1-1][y2]+"char$tGPT"+values[y1][y2]
-
+        y1 = 0
+        while y1<len(values):
+            y2 = 0
+            while y2<len(values[y1]):   
+                if y1>0 and values[y1][y2]!='':
+                    values[y1][y2] = values[y1-1][y2]+"char$tGPT"+values[y1][y2]
+                y2 = y2 + 1
+            y1 = y1 + 1
+        
     else:
         values = [[]]
+        values_all = []
 
-    return [values, len(values)]
+    return [values,len(values_all)]
 
 def generate_unique_url(cur):
     while True:
@@ -516,7 +575,7 @@ async def create_endpoint(request: CreateEndpointRequest):
     # Insert new endpoint information into header_structure
     insert_query = """INSERT INTO header_structure ("param", "sheetId", "tabId", "rows") VALUES (%s, %s, %s, %s);"""
     rows = 0  # Initial rows set to 0, this will be updated later
-    tab_id = request.tabId
+    tab_id = request.tabId  
     data_query = (endpoint_url, request.sheetId, tab_id, rows)
     cur.execute(insert_query, data_query)
     conn.commit()
@@ -525,6 +584,7 @@ async def create_endpoint(request: CreateEndpointRequest):
     conn.close()
 
     return {"url": endpoint_url, "sheetId": request.sheetId, "sheetName": request.sheetName}
+
 
 if __name__ == "__main__":
     import uvicorn
