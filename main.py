@@ -50,7 +50,6 @@ def collect_keys(data, level=0, keys_dict=[[]], prevkey="", colchanges=[]):
             if level > 0:
                 if key not in keys_dict[level]:
                     if prevkey not in keys_dict[level - 1]:
-                        # Safeguard against accessing non-existent elements
                         print(f"Warning: {prevkey} not in previous level keys_dict")
                         continue
                     rev_index = keys_dict[level - 1][::-1].index(prevkey)
@@ -315,6 +314,9 @@ async def receive_data(param: str, data: Dict):
 
         header = raw_feed[0]
         lastrow = raw_feed[1]
+
+        if not header:
+            header = [[]]
 
         results = collect_keys(data, 0, header, "", [])
         cleaned = format_keys(results[0])
