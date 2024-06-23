@@ -38,7 +38,10 @@ def collect_keys(data, level=0, keys_dict=None, prevkey="", colchanges=[]):
         
     # Ensure keys_dict has enough levels
     while level >= len(keys_dict):
-        keys_dict.append([''] * len(keys_dict[level - 1]))
+        if level == 0:
+            keys_dict.append([])
+        else:
+            keys_dict.append([''] * len(keys_dict[level - 1]))
 
     # Ensure current level has the correct number of columns
     if level > 0 and len(keys_dict[level]) < len(keys_dict[level - 1]):
@@ -53,8 +56,15 @@ def collect_keys(data, level=0, keys_dict=None, prevkey="", colchanges=[]):
 
             if level > 0:
                 if full_key not in keys_dict[level]:
-                    rev_index = keys_dict[level - 1][::-1].index(prevkey)
-                    y = len(keys_dict[level - 1]) - rev_index - 1
+                    if prevkey:
+                        try:
+                            rev_index = keys_dict[level - 1][::-1].index(prevkey)
+                            y = len(keys_dict[level - 1]) - rev_index - 1
+                        except ValueError:
+                            y = len(keys_dict[level - 1])
+                    else:
+                        y = len(keys_dict[level])
+                        
                     if 'char$tGPT'.join(keys_dict[level][y].split('char$tGPT')[:-1]) == prevkey:
                         y += 1
                     keys_dict[level].insert(y, full_key)
