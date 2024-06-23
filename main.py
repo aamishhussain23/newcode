@@ -33,77 +33,74 @@ class CreateEndpointRequest(BaseModel):
     sheetName : str
 
 def collect_keys(data, level=0, keys_dict=[[]], prevkey="", colchanges=[]):
+    if level >= len(keys_dict):
+        keys_dict.append([''] * len(keys_dict[level - 1]))
 
-    if level>(len(keys_dict)-1):
-        if level>0:
-            keys_dict.append(['']*len(keys_dict[level-1]))
-    elif level>0:
-        if len(keys_dict[level])<len(keys_dict[level-1]):
-            y = len(keys_dict[level])
-            while y < len(keys_dict[level-1]):
-                keys_dict[level].append('')
-                y = y + 1
+    elif len(keys_dict[level]) < len(keys_dict[level - 1]):
+        y = len(keys_dict[level])
+        while y < len(keys_dict[level - 1]):
+            keys_dict[level].append('')
+            y += 1
 
-    #print(keys_dict)
     if isinstance(data, dict):
         for key, value in data.items():
-            if prevkey!= "":
-                key = prevkey+"char$tGPT"+key
-            if level>0:    
-                if key not in keys_dict[level]:
-                    rev_index = keys_dict[level-1][::-1].index(prevkey)
-                    y = len(keys_dict[level-1])-rev_index-1
-                    if 'char$tGPT'.join(keys_dict[level][y].split('char$tGPT')[:-1])==prevkey:
-                        y = y + 1
-                    #print(keys_dict)
-                    keys_dict[level].insert(y,key)
-                    if not isinstance(value,dict) or isinstance(value,list):
+            full_key = prevkey + "char$tGPT" + key if prevkey else key
+
+            if level > 0:
+                if full_key not in keys_dict[level]:
+                    rev_index = keys_dict[level - 1][::-1].index(prevkey)
+                    y = len(keys_dict[level - 1]) - rev_index - 1
+                    if 'char$tGPT'.join(keys_dict[level][y].split('char$tGPT')[:-1]) == prevkey:
+                        y += 1
+                    keys_dict[level].insert(y, full_key)
+                    if not isinstance(value, (dict, list)):
                         colchanges.append(y)
-                    if len(keys_dict[level])>y:
-                        level2=level
-                        oldkey = key
-                        while level2>0:                                
+
+                    if len(keys_dict[level]) > y:
+                        level2 = level
+                        oldkey = full_key
+                        while level2 > 0:
                             oldkey = 'char$tGPT'.join(oldkey.split('char$tGPT')[:-1])
-                            rev_index =  keys_dict[level2-1][::-1].index(oldkey)
-                            index = len(keys_dict[level2-1])-rev_index-1
-                            m=0
-                            times=0
-                            while m<len(keys_dict[level2]):
-                                if 'char$tGPT'.join(keys_dict[level2][m].split('char$tGPT')[:-1])==oldkey:
-                                    times = times + 1
-                                m = m+1
-                            if times>keys_dict[level2-1].count(oldkey):
-                                keys_dict[level2-1].insert(index,oldkey)      
-                            level2 = level2-1
-                        
-                        level2=level
-                        if not isinstance(value,dict) and not isinstance(value,list):
-                            while level2<len(keys_dict)-1:
-                                keys_dict[level2+1].insert(y,'')
-                                level2 = level2+1
-                    
-                if isinstance(value,dict):
-                    collect_keys(value,level+1,keys_dict,key,colchanges)
-            
-                elif isinstance(value,list):
-                    for j in range(0,len(value)):
-                        if isinstance(value[j],dict):
-                            collect_keys(value[j],level+1,keys_dict,key,colchanges)
+                            rev_index = keys_dict[level2 - 1][::-1].index(oldkey)
+                            index = len(keys_dict[level2 - 1]) - rev_index - 1
+                            m = 0
+                            times = 0
+                            while m < len(keys_dict[level2]):
+                                if 'char$tGPT'.join(keys_dict[level2][m].split('char$tGPT')[:-1]) == oldkey:
+                                    times += 1
+                                m += 1
+                            if times > keys_dict[level2 - 1].count(oldkey):
+                                keys_dict[level2 - 1].insert(index, oldkey)
+                            level2 -= 1
 
-            else: 
-                if key not in keys_dict[level]:
-                    keys_dict[level].append(key)
+                        level2 = level
+                        if not isinstance(value, (dict, list)):
+                            while level2 < len(keys_dict) - 1:
+                                keys_dict[level2 + 1].insert(y, '')
+                                level2 += 1
 
-                if isinstance(value,dict):
-                    collect_keys(value,level+1,keys_dict,key,colchanges)
-            
-                elif isinstance(value,list):
-                    for j in range(0,len(value)):
-                        if isinstance(value[j],dict):
-                            collect_keys(value[j],level+1,keys_dict,key,colchanges)
+                if isinstance(value, dict):
+                    collect_keys(value, level + 1, keys_dict, full_key, colchanges)
 
+                elif isinstance(value, list):
+                    for j in range(len(value)):
+                        if isinstance(value[j], dict):
+                            collect_keys(value[j], level + 1, keys_dict, full_key, colchanges)
 
-    return [keys_dict,colchanges]
+            else:
+                if full_key not in keys_dict[level]:
+                    keys_dict[level].append(full_key)
+
+                if isinstance(value, dict):
+                    collect_keys(value, level + 1, keys_dict, full_key, colchanges)
+
+                elif isinstance(value, list):
+                    for j in range(len(value)):
+                        if isinstance(value[j], dict):
+                            collect_keys(value[j], level + 1, keys_dict, full_key, colchanges)
+
+    return [keys_dict, colchanges]
+
 
 def fill_rows(data, level=0, keys_dict=[],row=[],rowlevel=0,prevkey=""):
     
