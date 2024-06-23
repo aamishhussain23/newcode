@@ -323,8 +323,9 @@ async def receive_data(param: str, data: Dict):
         datarow = fill_rows(data, 0, cleaned, [], 0, "")
         cleaned_2 = getback(cleaned.copy())
 
+        requests = []
         if len(cleaned) > int(row[2]):
-            requests = [{
+            requests.append({
                 "insertDimension": {
                     "range": {
                         "sheetId": row[1],
@@ -334,67 +335,63 @@ async def receive_data(param: str, data: Dict):
                     },
                     "inheritFromBefore": False
                 }
-            }]
-            body = {'requests': requests}
-            service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=body).execute()
+            })
 
-        requests = []
         if len(results[1]) > 0:
             for j in range(len(results[1])):
-                if len(cleaned) <= lastrow + len(cleaned) - int(row[2]):
-                    requests.append({
-                        "insertRange": {
-                            "range": {
-                                "sheetId": row[1],
-                                "startRowIndex": len(cleaned),
-                                "endRowIndex": lastrow + len(cleaned) - int(row[2]) + 1,
-                                "startColumnIndex": results[1][j],
-                                "endColumnIndex": results[1][j] + 1,
-                            },
-                            "shiftDimension": "COLUMNS"
-                        }
-                    })
+                requests.append({
+                    "insertRange": {
+                        "range": {
+                            "sheetId": row[1],
+                            "startRowIndex": len(cleaned),
+                            "endRowIndex": lastrow + len(cleaned) - int(row[2]) + 1,
+                            "startColumnIndex": results[1][j],
+                            "endColumnIndex": results[1][j] + 1,
+                        },
+                        "shiftDimension": "COLUMNS"
+                    }
+                })
+
+        merge_requests = merge(cleaned, cleaned_2)
+        requests.extend(merge_requests)
+        requests.extend(value_merge(datarow, lastrow + len(cleaned) - int(row[2])))
+
+        if requests:
+            clear_formatting_request = {
+                'requests': [{
+                    'unmergeCells': {
+                        'range': {
+                            'sheetId': 0,
+                            "startRowIndex": 0,
+                            "endRowIndex": len(cleaned),
+                            "startColumnIndex": 0,
+                            "endColumnIndex": len(cleaned[0])
+                        },
+                    }
+                }]
+            }
+            clear_values_request = {
+                'requests': [{
+                    'updateCells': {
+                        'range': {
+                            'sheetId': 0,
+                            "startRowIndex": 0,
+                            "endRowIndex": len(cleaned),
+                            "startColumnIndex": 0,
+                            "endColumnIndex": len(cleaned[0])
+                        },
+                        'fields': 'userEnteredValue'
+                    }
+                }]
+            }
+
+            service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=clear_values_request).execute()
+            service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=clear_formatting_request).execute()
+
             body = {'requests': requests}
             service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=body).execute()
 
-        requests = merge(cleaned, cleaned_2)
-        requests.append(value_merge(datarow, lastrow + len(cleaned) - int(row[2])))
-
-        clear_formatting_request = {
-            'requests': [{
-                'unmergeCells': {
-                    'range': {
-                        'sheetId': 0,
-                        "startRowIndex": 0,
-                        "endRowIndex": len(cleaned),
-                        "startColumnIndex": 0,
-                        "endColumnIndex": len(cleaned[0])
-                    },
-                }
-            }]
-        }
-        clear_values_request = {
-            'requests': [{
-                'updateCells': {
-                    'range': {
-                        'sheetId': 0,
-                        "startRowIndex": 0,
-                        "endRowIndex": len(cleaned),
-                        "startColumnIndex": 0,
-                        "endColumnIndex": len(cleaned[0])
-                    },
-                    'fields': 'userEnteredValue'
-                }
-            }]
-        }
-
-        service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=clear_values_request).execute()
-        service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=clear_formatting_request).execute()
-
-        body = {'requests': requests}
-        service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=body).execute()
-
-        update_header_structure(conn, row[0], row[1], len(results[0]))
+            update_header_structure(conn, row[0], row[1], len(results[0]))
 
     return 0
 
