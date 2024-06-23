@@ -1,12 +1,11 @@
 from typing import Any, Dict, List, Union
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel
 from datetime import datetime
 from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 import json
-import psycopg2
+import psycopg2 
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
 
