@@ -385,18 +385,18 @@ async def receive_token(param: str, data: Dict):
         creds = Credentials(token=access_token)
         service = build('sheets', 'v4', credentials=creds)
         
-        # Fetch existing header structure
         raw_feed = getdata(token[0], row[0], row[1], row[2])
+        
         header = raw_feed[0]
         lastrow = raw_feed[1]
 
-        # Collect keys from the incoming data
         results = collect_keys(data, 0, header, "", [])
+        
         cleaned = format_keys(results[0])
         datarow = fill_rows(data, 0, cleaned, [], 0, "")
         cleaned_2 = getback(cleaned.copy())
-        
-        # Ensure headers are set correctly before inserting data
+
+        # Check if the header length is greater than the existing rows
         if len(cleaned) > int(row[2]):
             requests = [
                 {
@@ -415,6 +415,7 @@ async def receive_token(param: str, data: Dict):
             body = {'requests': requests}
             service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=body).execute()
 
+        # Insert columns if needed
         if len(results[1]) > 0: 
             requests = []
             for j in range(len(results[1])):
@@ -434,9 +435,12 @@ async def receive_token(param: str, data: Dict):
             body = {'requests': requests}
             service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=body).execute()
     
+        # Merge and write headers
         requests = merge(cleaned, cleaned_2)
+        # Write data rows
         requests.append(value_merge(datarow, lastrow + len(cleaned) - int(row[2])))
 
+        # Clear formatting and values in the range
         clear_formatting_request = {
             'requests': [{
                 'unmergeCells': {
@@ -466,11 +470,9 @@ async def receive_token(param: str, data: Dict):
             }]
         }
         
-        # Always reset the headers before inserting new data
         service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=clear_values_request).execute()
         service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=clear_formatting_request).execute()
 
-        # Insert headers and data
         body = {'requests': requests}
         service.spreadsheets().batchUpdate(spreadsheetId=row[0], body=body).execute()
 
