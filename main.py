@@ -32,11 +32,16 @@ class CreateEndpointRequest(BaseModel):
     tabId: int
     sheetName : str
 
-def collect_keys(data, level=0, keys_dict=[[]], prevkey="", colchanges=[]):
-    if level >= len(keys_dict):
+def collect_keys(data, level=0, keys_dict=None, prevkey="", colchanges=[]):
+    if keys_dict is None:
+        keys_dict = [[]]
+        
+    # Ensure keys_dict has enough levels
+    while level >= len(keys_dict):
         keys_dict.append([''] * len(keys_dict[level - 1]))
 
-    elif len(keys_dict[level]) < len(keys_dict[level - 1]):
+    # Ensure current level has the correct number of columns
+    if level > 0 and len(keys_dict[level]) < len(keys_dict[level - 1]):
         y = len(keys_dict[level])
         while y < len(keys_dict[level - 1]):
             keys_dict[level].append('')
@@ -548,13 +553,12 @@ def generate_unique_url(cur):
 
 @app.post("/create-endpoint")
 async def create_endpoint(request: CreateEndpointRequest):
-    print(request)
     conn = psycopg2.connect("postgresql://retool:yosc9BrPx5Lw@ep-silent-hill-00541089.us-west-2.retooldb.com/retool?sslmode=require")
     cur = conn.cursor()
 
     # Generate a unique endpoint URL
     endpoint_url = generate_unique_url(cur)
-    print(endpoint_url)
+
     # Insert new endpoint information into header_structure
     insert_query = """INSERT INTO header_structure ("param", "sheetId", "tabId", "rows") VALUES (%s, %s, %s, %s);"""
     rows = 0  # Initial rows set to 0, this will be updated later
@@ -566,7 +570,7 @@ async def create_endpoint(request: CreateEndpointRequest):
     cur.close()
     conn.close()
 
-    return {"url": endpoint_url, "sheetId": request.sheetId, "sheetName" : request.sheetName}
+    return {"url": endpoint_url, "sheetId": request.sheetId, "sheetName": request.sheetName}
 
 
 if __name__ == "__main__":
