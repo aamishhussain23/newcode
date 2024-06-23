@@ -356,17 +356,54 @@ def value_merge(rows,pos):
 
     return requests   
 
-@app.post("/sendtoken")
+@app.post("/sendtoken", response_model=None)
 async def receive_token(data: TokenData):
-    
+    print("hello")
     insert_query = """INSERT INTO oauth_token ("token","sheetId","utcTime") VALUES (%s, %s, %s) ON CONFLICT ("sheetId")  DO UPDATE SET "token" = EXCLUDED."token", "utcTime" = EXCLUDED."utcTime";"""
-    data_query = (data.token,data.sheetId,datetime.now())
+    data_query = (data.token, data.sheetId, datetime.now())
     conn_sq = psycopg2.connect("postgresql://retool:yosc9BrPx5Lw@ep-silent-hill-00541089.us-west-2.retooldb.com/retool?sslmode=require")
     cur_sq = conn_sq.cursor()
-    cur_sq.execute(insert_query,data_query)
+    cur_sq.execute(insert_query, data_query)
     conn_sq.commit()
     
-    return 0
+    # Check if 'Hits' sheet exists, if not, create it
+    creds = Credentials(token=data.token)
+    service = build('sheets', 'v4', credentials=creds)
+    sheet_metadata = service.spreadsheets().get(spreadsheetId=data.sheetId).execute()
+    sheets = sheet_metadata.get('sheets', '')
+    sheet_names = [sheet['properties']['title'] for sheet in sheets]
+
+    if 'Hits' not in sheet_names:
+        requests = [{
+            'addSheet': {
+                'properties': {
+                    'title': 'Hits',
+                    'gridProperties': {
+                        'rowCount': 100,
+                        'columnCount': 5  # Decrease column count to 5
+                    }
+                }
+            }
+        }]
+        body = {
+            'requests': requests
+        }
+        service.spreadsheets().batchUpdate(spreadsheetId=data.sheetId, body=body).execute()
+
+        # Add headers to the 'Hits' sheet without 'Data' column
+        headers = [['URL', 'Hostname', 'User Agent', 'Date/Time', 'Method']]
+        range_name = 'Hits!A1'
+        body = {
+            'values': headers
+        }
+        service.spreadsheets().values().update(
+            spreadsheetId=data.sheetId,
+            range=range_name,
+            valueInputOption='RAW',
+            body=body
+        ).execute()
+
+    return {"status": "token received and Hits sheet ensured"}
 
 @app.post("/datasink/{param:path}")
 async def receive_token(param: str, data: Dict):
@@ -586,6 +623,67 @@ async def create_endpoint(request: CreateEndpointRequest):
     conn.close()
 
     return {"url": endpoint_url, "sheetId": request.sheetId, "sheetName": request.sheetName}
+
+
+@app.api_route("/{endpoint_id}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"], response_model=None)
+async def handle_webhook(endpoint_id: str, request: Request):
+    # Fetch JSON data if present
+    if request.method in ["POST", "PUT", "PATCH"]:
+        try:
+            data = await request.json()
+        except:
+            data = {}
+    else:
+        data = {}
+    
+    user_agent = request.headers.get('user-agent')
+    method = request.method
+    hostname = request.client.host
+    url = str(request.url)
+    hit_time = datetime.now().isoformat()
+
+    # Fetch the token and sheet information based on the endpoint_id
+    conn = psycopg2.connect("postgresql://retool:yosc9BrPx5Lw@ep-silent-hill-00541089.us-west-2.retooldb.com/retool?sslmode=require")
+    cur = conn.cursor()
+    query = """SELECT "sheetId", "tabId" FROM header_structure WHERE "param" = %s;"""
+    cur.execute(query, (endpoint_id,))
+    row = cur.fetchone()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Endpoint not found")
+
+    sheet_id, tab_id = row
+    query = """SELECT "token" FROM oauth_token WHERE "sheetId" = %s;"""
+    cur.execute(query, (sheet_id,))
+    token = cur.fetchone()
+    
+    if not token:
+        raise HTTPException(status_code=404, detail="Token not found")
+
+    access_token = token[0]
+    creds = Credentials(token=access_token)
+    service = build('sheets', 'v4', credentials=creds)
+
+    # Prepare the hit data without 'data' column
+    hit_data = [
+        [url, hostname, user_agent, hit_time, method]
+    ]
+
+    # Append the data to the 'Hits' tab
+    sheet_name = 'Hits'
+    range_name = f'{sheet_name}!A1'
+    body = {
+        'values': hit_data
+    }
+    
+    service.spreadsheets().values().append(
+        spreadsheetId=sheet_id,
+        range=range_name,
+        valueInputOption='USER_ENTERED',
+        body=body
+    ).execute()
+
+    return {"status": "success", "data": hit_data}
 
 
 if __name__ == "__main__":
