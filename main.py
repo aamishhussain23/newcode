@@ -687,6 +687,7 @@ async def handle_webhook(endpoint_id: str, request: Request):
     # Forward the request to the second endpoint
     forward_url = f"https://newcode-9d5c.onrender.com/datalink/{endpoint_id}"
     headers = dict(request.headers)
+    headers.pop("content-length", None)  # Remove Content-Length header
 
     async with httpx.AsyncClient() as client:
         if request.method == "GET":
@@ -706,7 +707,6 @@ async def handle_webhook(endpoint_id: str, request: Request):
         raise HTTPException(status_code=forward_response.status_code, detail=forward_response.text)
 
     return {"status": "success", "data": hit_data, "forward_response": forward_response.json()}
-
 
 if __name__ == "__main__":
     import uvicorn
