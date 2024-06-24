@@ -6,4 +6,3 @@ google-api-python-client
 logging
 psycopg2
 uuid
-httpx

@@ -8,7 +8,6 @@ import json
 import psycopg2 
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
-import httpx  
 
 app = FastAPI()
 
@@ -683,12 +682,7 @@ async def handle_webhook(endpoint_id: str, request: Request):
         body=body
     ).execute()
 
-    # Make the additional request to the other endpoint
-    additional_endpoint = f"https://newcode-9d5c.onrender.com/datalink/{endpoint_id}"
-    async with httpx.AsyncClient() as client:
-        response = await client.post(additional_endpoint, json=data)
-    
-    return {"status": "success", "data": hit_data, "additional_request_status": response.status_code}
+    return {"status": "success", "data": hit_data}
 
 
 if __name__ == "__main__":
