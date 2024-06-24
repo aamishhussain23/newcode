@@ -8,6 +8,8 @@ import json
 import psycopg2 
 import uuid
 from fastapi.middleware.cors import CORSMiddleware
+import httpx
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
@@ -634,7 +636,7 @@ async def handle_webhook(endpoint_id: str, request: Request):
             data = {}
     else:
         data = {}
-    
+
     user_agent = request.headers.get('user-agent')
     method = request.method
     hostname = request.client.host
@@ -682,7 +684,28 @@ async def handle_webhook(endpoint_id: str, request: Request):
         body=body
     ).execute()
 
-    return {"status": "success", "data": hit_data}
+    # Forward the request to the second endpoint
+    forward_url = f"https://newcode-9d5c.onrender.com/datalink/{endpoint_id}"
+    headers = dict(request.headers)
+
+    async with httpx.AsyncClient() as client:
+        if request.method == "GET":
+            forward_response = await client.get(forward_url, headers=headers)
+        elif request.method == "POST":
+            forward_response = await client.post(forward_url, json=data, headers=headers)
+        elif request.method == "PUT":
+            forward_response = await client.put(forward_url, json=data, headers=headers)
+        elif request.method == "PATCH":
+            forward_response = await client.patch(forward_url, json=data, headers=headers)
+        elif request.method == "DELETE":
+            forward_response = await client.delete(forward_url, headers=headers)
+        else:
+            forward_response = JSONResponse(status_code=405, content={"message": "Method not allowed"})
+
+    if forward_response.status_code != 200:
+        raise HTTPException(status_code=forward_response.status_code, detail=forward_response.text)
+
+    return {"status": "success", "data": hit_data, "forward_response": forward_response.json()}
 
 
 if __name__ == "__main__":
